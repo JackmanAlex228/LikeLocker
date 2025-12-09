@@ -1,0 +1,12 @@
+# Environment variables
+.env
+
+# Downloaded files
+downloaded_files/
+downloaded_cache.txt
+
+# Build artifacts
+bsky-liked-media-downloader
+
+# macOS
+.DS_Store
