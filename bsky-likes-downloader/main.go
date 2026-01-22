@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -70,89 +71,89 @@ func NewMediaFetcher(handle, password, downloadDir, cacheFile string) (*MediaFet
 	return mf, nil
 }
 
-// MediaFetcher : FetchLikedPosts(actor string, limit int64) : []bsky.FeedDefs_FeedViewPost!
-func (mf *MediaFetcher) FetchLikedPosts(actor string, limit int64) ([]*bsky.FeedDefs_FeedViewPost, error) {
-	var allPosts []*bsky.FeedDefs_FeedViewPost
+// FetchAndDownload fetches liked posts and downloads media in batches, stopping when downloadLimit is reached
+func (mf *MediaFetcher) FetchAndDownload(actor string, batchSize int64, downloadLimit int) error {
 	var cursor string
+	downloadCount := 0
+	postsProcessed := 0
+
 	fmt.Print("\033[s")
-	for {
-		resp, err := bsky.FeedGetActorLikes(context.Background(), mf.client, actor, cursor, limit)
+	for downloadCount < downloadLimit {
+		resp, err := bsky.FeedGetActorLikes(context.Background(), mf.client, actor, cursor, batchSize)
 		if err != nil {
-			return nil, fmt.Errorf("failed to fetch likes: %w", err)
+			return fmt.Errorf("failed to fetch likes: %w", err)
 		}
+
 		// Break if no posts returned
 		if len(resp.Feed) == 0 {
 			break
 		}
-		allPosts = append(allPosts, resp.Feed...)
-		// Break if no cursor or cursor hasn't changed
+
+		// Process and download from this batch
+		for _, post := range resp.Feed {
+			if downloadCount >= downloadLimit {
+				fmt.Printf("\nReached download limit of %d files\n", downloadLimit)
+				fmt.Printf("Total files downloaded: %d\n", downloadCount)
+				return nil
+			}
+
+			postsProcessed++
+			fmt.Print("\033[u\033[K")
+			fmt.Printf("Processing post %d (downloaded: %d/%d)\n", postsProcessed, downloadCount, downloadLimit)
+
+			// Check if post has embed
+			if post.Post.Embed == nil {
+				continue
+			}
+
+			embed := post.Post.Embed
+
+			// Handle different embed types by checking which field is populated
+			if embed.EmbedImages_View != nil {
+				downloaded, err := mf.downloadImages(embed.EmbedImages_View.Images, downloadLimit-downloadCount)
+				downloadCount += downloaded
+				if err != nil {
+					fmt.Printf("Error downloading images: %v\n", err)
+				}
+			}
+
+			if embed.EmbedVideo_View != nil && downloadCount < downloadLimit {
+				downloaded, err := mf.downloadVideo(embed.EmbedVideo_View)
+				downloadCount += downloaded
+				if err != nil {
+					fmt.Printf("Error downloading video: %v\n", err)
+				}
+			}
+
+			if embed.EmbedRecordWithMedia_View != nil && downloadCount < downloadLimit {
+				// Handle posts with both record and media
+				if embed.EmbedRecordWithMedia_View.Media != nil {
+					media := embed.EmbedRecordWithMedia_View.Media
+					if media.EmbedImages_View != nil {
+						downloaded, err := mf.downloadImages(media.EmbedImages_View.Images, downloadLimit-downloadCount)
+						downloadCount += downloaded
+						if err != nil {
+							fmt.Printf("Error downloading images: %v\n", err)
+						}
+					}
+					if media.EmbedVideo_View != nil && downloadCount < downloadLimit {
+						downloaded, err := mf.downloadVideo(media.EmbedVideo_View)
+						downloadCount += downloaded
+						if err != nil {
+							fmt.Printf("Error downloading video: %v\n", err)
+						}
+					}
+				}
+			}
+		}
+
+		// Break if no more pages
 		if resp.Cursor == nil || *resp.Cursor == "" {
 			break
 		}
 		cursor = *resp.Cursor
-		fmt.Print("\033[u\033[K")
-		fmt.Printf("Fetched %d posts so far...\n", len(allPosts))
 	}
-	return allPosts, nil
-}
 
-// MediaFetcher : DownloadMedia(posts []bsky.FeedDefs_FeedViewPost, limit int) : nil!
-func (mf *MediaFetcher) DownloadMedia(posts []*bsky.FeedDefs_FeedViewPost, limit int) error {
-	downloadCount := 0
-
-	for i, post := range posts {
-		// Check if we've reached the download limit
-		if downloadCount >= limit {
-			fmt.Printf("\nReached download limit of %d files\n", limit)
-			break
-		}
-
-		fmt.Printf("Processing post %d/%d (downloaded: %d/%d)\n", i+1, len(posts), downloadCount, limit)
-		// Check if post had embed
-		if post.Post.Embed == nil {
-			continue
-		}
-
-		embed := post.Post.Embed
-
-		// Handle different embed types by checking which field is populated
-		if embed.EmbedImages_View != nil {
-			downloaded, err := mf.downloadImages(embed.EmbedImages_View.Images, limit-downloadCount)
-			downloadCount += downloaded
-			if err != nil {
-				fmt.Printf("Error downloading images: %v\n", err)
-			}
-		}
-
-		if embed.EmbedVideo_View != nil && downloadCount < limit {
-			downloaded, err := mf.downloadVideo(embed.EmbedVideo_View)
-			downloadCount += downloaded
-			if err != nil {
-				fmt.Printf("Error downloading video: %v\n", err)
-			}
-		}
-
-		if embed.EmbedRecordWithMedia_View != nil && downloadCount < limit {
-			// Handle posts with both record and media
-			if embed.EmbedRecordWithMedia_View.Media != nil {
-				media := embed.EmbedRecordWithMedia_View.Media
-				if media.EmbedImages_View != nil {
-					downloaded, err := mf.downloadImages(media.EmbedImages_View.Images, limit-downloadCount)
-					downloadCount += downloaded
-					if err != nil {
-						fmt.Printf("Error downloading images: %v\n", err)
-					}
-				}
-				if media.EmbedVideo_View != nil && downloadCount < limit {
-					downloaded, err := mf.downloadVideo(media.EmbedVideo_View)
-					downloadCount += downloaded
-					if err != nil {
-						fmt.Printf("Error downloading video: %v\n", err)
-					}
-				}
-			}
-		}
-	}
 	fmt.Printf("\nTotal files downloaded: %d\n", downloadCount)
 	return nil
 }
@@ -232,12 +233,43 @@ func (mf *MediaFetcher) downloadImages(images []*bsky.EmbedImages_ViewImage, lim
 	return downloadCount, nil
 }
 
-// MediaFetcher : downloadVideos(video bsky.EmbedVideo_View) : (int, error)
+// MediaFetcher : downloadVideo(video bsky.EmbedVideo_View) : (int, error)
+// Uses ffmpeg to download HLS stream and convert to mp4
 func (mf *MediaFetcher) downloadVideo(video *bsky.EmbedVideo_View) (int, error) {
-	if video.Playlist != "" {
-		return mf.downloadFile(video.Playlist, "video")
+	if video.Playlist == "" {
+		return 0, nil
 	}
-	return 0, nil
+
+	// Generate filename from URL hash
+	hash := sha256.Sum256([]byte(video.Playlist))
+	cacheKey := hex.EncodeToString(hash[:])
+	filename := cacheKey + ".mp4"
+	outputPath := filepath.Join(mf.downloadDir, filename)
+
+	// Check if already downloaded
+	if mf.isDownloaded(filename) {
+		fmt.Printf("Cache hit: %s\n", filename)
+		return 0, nil
+	}
+
+	fmt.Printf("Downloading video via ffmpeg: %s\n", video.Playlist)
+
+	// Use ffmpeg to download and convert HLS stream to mp4
+	cmd := exec.Command("ffmpeg", "-i", video.Playlist, "-c", "copy", "-y", outputPath)
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+
+	if err := cmd.Run(); err != nil {
+		return 0, fmt.Errorf("ffmpeg failed: %w", err)
+	}
+
+	// Mark as downloaded in cache
+	if err := mf.markDownloaded(filename); err != nil {
+		fmt.Printf("Warning: failed to update cache: %v\n", err)
+	}
+
+	fmt.Printf("Saved: %s\n", filename)
+	return 1, nil
 }
 
 // MediaFetcher : downloadFile(url, mediaType string) : (int, error)
@@ -337,19 +369,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	//	Fetch liked posts (use your DID or handle)
-	fmt.Println("Fetching liked posts...")
-	posts, err3 := fetcher.FetchLikedPosts(handle, 50)
-	if err3 != nil {
-		fmt.Fprintf(os.Stderr, "Error fetching posts: %v\n", err3)
-		os.Exit(1)
-	}
-	fmt.Printf("\rFound %d liked posts\n", len(posts))
-
-	//	Download media
-	fmt.Printf("Downloading media (limit: %d files)...\n", downloadLimit)
-	if err4 := fetcher.DownloadMedia(posts, downloadLimit); err4 != nil {
-		fmt.Fprintf(os.Stderr, "Error downloading media: %v\n", err4)
+	//	Fetch and download media
+	fmt.Printf("Fetching likes and downloading media (limit: %d files)...\n", downloadLimit)
+	if err := fetcher.FetchAndDownload(handle, 50, downloadLimit); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
