@@ -1,6 +1,6 @@
 module bsky-liked-media-downloader
 
-go 1.25.4
+go 1.24
 
 require (
 	github.com/bluesky-social/indigo v0.0.0-20251114034233-c10ddb5cf518 // indirect

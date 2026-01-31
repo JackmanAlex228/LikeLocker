@@ -1,0 +1,28 @@
+# Binaries
+bsky-liked-media-downloader
+bsky-likes-downloader
+*.exe
+
+# Downloaded files
+downloaded_files/
+downloaded_cache.txt
+
+# Environment files with secrets
+.env
+
+# Git
+.git
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Docker
+Dockerfile
+docker-compose.yml

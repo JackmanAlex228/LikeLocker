@@ -1,0 +1,12 @@
+services:
+  bsky-downloader:
+    build: .
+    environment:
+      - BSKY_HANDLE=${BSKY_HANDLE}
+      - BSKY_PASSWORD=${BSKY_PASSWORD}
+      - DOWNLOAD_LIMIT=${DOWNLOAD_LIMIT:-100}
+      - DOWNLOAD_DIR=/data/downloads
+      - CACHE_FILE=/data/downloaded_cache.txt
+    volumes:
+      - ./downloaded_files:/data/downloads
+      - ./downloaded_cache.txt:/data/downloaded_cache.txt

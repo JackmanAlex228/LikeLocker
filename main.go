@@ -328,10 +328,8 @@ func (mf *MediaFetcher) downloadFile(url, mediaType string) (int, error) {
 
 // main()
 func main() {
-	// Load environment variables from .env file
-	if err := godotenv.Load(); err != nil {
-		log.Fatal("Error loading .env file")
-	}
+	// Load environment variables from .env file (optional - Docker passes env vars directly)
+	_ = godotenv.Load() // Ignore error if .env doesn't exist
 
 	//	Configuration from environment variables
 	handle := os.Getenv("BSKY_HANDLE")
