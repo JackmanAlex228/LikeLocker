@@ -68,6 +68,11 @@ func NewMediaFetcher(handle, password, downloadDir, cacheFile string) (*MediaFet
 		return nil, fmt.Errorf("failed to load cache: %w", err)
 	}
 
+	// Sync cache with existing files in directory
+	if err := mf.syncCacheFromDirectory(); err != nil {
+		return nil, fmt.Errorf("failed to save cache after sync: %w", err)
+	}
+
 	return mf, nil
 }
 
@@ -204,6 +209,34 @@ func (mf *MediaFetcher) saveCache() error {
 	}
 
 	return writer.Flush()
+}
+
+// syncCacheFromDirectory scans the download directory and adds any existing files to the cache.
+// Useful for recovering from a lost/corrupted cache file or when files were added manually.
+func (mf *MediaFetcher) syncCacheFromDirectory() error {
+	entries, err := os.ReadDir(mf.downloadDir)
+	if err != nil {
+		return fmt.Errorf("failed to read download directory: %w", err)
+	}
+
+	added := 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		filename := entry.Name()
+		if !mf.downloadedFiles[filename] {
+			mf.downloadedFiles[filename] = true
+			added++
+		}
+	}
+	if added > 0 {
+		fmt.Printf("Synced %d files from directory to cache\n", added)
+		if err := mf.saveCache(); err != nil {
+			return fmt.Errorf("failed to save cache after sync: %w", err)
+		}
+	}
+	return nil
 }
 
 // markDownloaded adds a filename to the cache and saves it
