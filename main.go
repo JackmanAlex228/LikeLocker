@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/bluesky-social/indigo/api/atproto"
 	"github.com/bluesky-social/indigo/api/bsky"
@@ -163,6 +164,47 @@ func (mf *MediaFetcher) FetchAndDownload(actor string, batchSize int64, download
 	return nil
 }
 
+// WatchLikes polls for new likes and prints when new media is found
+func (mf *MediaFetcher) WatchLikes(actor string, interval time.Duration) error {
+	seen := make(map[string]bool)
+
+	// Initial load - mark existing likes as seen
+	fmt.Println("Loading existing likes...")
+	resp, err := bsky.FeedGetActorLikes(context.Background(), mf.client, actor, "", 50)
+	if err != nil {
+		return fmt.Errorf("failed to fetch initial likes: %w", err)
+	}
+	for _, post := range resp.Feed {
+		seen[post.Post.Uri] = true
+	}
+	fmt.Printf("Tracking %d existing likes. Watching for new ones...\n", len(seen))
+
+	for {
+		time.Sleep(interval)
+
+		resp, err := bsky.FeedGetActorLikes(context.Background(), mf.client, actor, "", 50)
+		if err != nil {
+			fmt.Printf("Error fetching likes: %v\n", err)
+			continue
+		}
+
+		for _, post := range resp.Feed {
+			if seen[post.Post.Uri] {
+				continue
+			}
+			seen[post.Post.Uri] = true
+			fmt.Printf("New like: %s\n", post.Post.Uri)
+
+			downloaded, err := mf.downloadPostMedia(post.Post.Embed)
+			if err != nil {
+				fmt.Printf("Error downloading media: %v\n", err)
+			} else if downloaded > 0 {
+				fmt.Printf("Downloaded %d file(s)\n", downloaded)
+			}
+		}
+	}
+}
+
 // loadCache reads the cache file and populates the downloadedFiles map
 func (mf *MediaFetcher) loadCache() error {
 	file, err := os.Open(mf.cacheFile)
@@ -248,6 +290,51 @@ func (mf *MediaFetcher) markDownloaded(filename string) error {
 // isDownloaded checks if a file has already been downloaded
 func (mf *MediaFetcher) isDownloaded(filename string) bool {
 	return mf.downloadedFiles[filename]
+}
+
+// downloadPostMedia downloads any media from a single post's embed
+func (mf *MediaFetcher) downloadPostMedia(embed *bsky.FeedDefs_PostView_Embed) (int, error) {
+	if embed == nil {
+		return 0, nil
+	}
+
+	downloaded := 0
+
+	if embed.EmbedImages_View != nil {
+		n, err := mf.downloadImages(embed.EmbedImages_View.Images, len(embed.EmbedImages_View.Images))
+		downloaded += n
+		if err != nil {
+			return downloaded, err
+		}
+	}
+
+	if embed.EmbedVideo_View != nil {
+		n, err := mf.downloadVideo(embed.EmbedVideo_View)
+		downloaded += n
+		if err != nil {
+			return downloaded, err
+		}
+	}
+
+	if embed.EmbedRecordWithMedia_View != nil && embed.EmbedRecordWithMedia_View.Media != nil {
+		media := embed.EmbedRecordWithMedia_View.Media
+		if media.EmbedImages_View != nil {
+			n, err := mf.downloadImages(media.EmbedImages_View.Images, len(media.EmbedImages_View.Images))
+			downloaded += n
+			if err != nil {
+				return downloaded, err
+			}
+		}
+		if media.EmbedVideo_View != nil {
+			n, err := mf.downloadVideo(media.EmbedVideo_View)
+			downloaded += n
+			if err != nil {
+				return downloaded, err
+			}
+		}
+	}
+
+	return downloaded, nil
 }
 
 // MediaFetcher : downloadImages(images []bsky.FeedDefs_FeedViewPost, limit int) : (int, error)
@@ -370,6 +457,7 @@ func main() {
 	downloadDir := os.Getenv("DOWNLOAD_DIR")
 	cacheFile := os.Getenv("CACHE_FILE")
 	downloadLimitStr := os.Getenv("DOWNLOAD_LIMIT")
+	pollInterval := os.Getenv("POLL_INTERVAL")
 
 	// Validate required environment variables
 	if handle == "" || password == "" {
@@ -386,11 +474,20 @@ func main() {
 	if downloadLimitStr == "" {
 		downloadLimitStr = "100"
 	}
+	if pollInterval == "" {
+		pollInterval = "30"
+	}
 
 	// Parse download limit
 	downloadLimit, err := strconv.Atoi(downloadLimitStr)
 	if err != nil {
 		log.Fatalf("Invalid DOWNLOAD_LIMIT value: %v", err)
+	}
+
+	// Parse poll interval (in seconds)
+	pollIntervalSec, err := strconv.Atoi(pollInterval)
+	if err != nil {
+		log.Fatalf("Invalid POLL_INTERVAL value: %v", err)
 	}
 
 	//	Create fetcher
@@ -405,6 +502,11 @@ func main() {
 	if err := fetcher.FetchAndDownload(handle, 50, downloadLimit); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Watch mode - poll every X seconds
+	if err := fetcher.WatchLikes(handle, time.Duration(pollIntervalSec)*time.Second); err != nil {
+		log.Fatal(err)
 	}
 
 	fmt.Println("Done!")
