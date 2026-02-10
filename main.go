@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -448,6 +449,10 @@ func (mf *MediaFetcher) downloadFile(url, mediaType string) (int, error) {
 
 // main()
 func main() {
+	// Parse command-line flags
+	watchOnlyFlag := flag.Bool("watch", false, "Skip initial download, only watch for new likes")
+	flag.Parse()
+
 	// Load environment variables from .env file (optional - Docker passes env vars directly)
 	_ = godotenv.Load() // Ignore error if .env doesn't exist
 
@@ -458,6 +463,10 @@ func main() {
 	cacheFile := os.Getenv("CACHE_FILE")
 	downloadLimitStr := os.Getenv("DOWNLOAD_LIMIT")
 	pollInterval := os.Getenv("POLL_INTERVAL")
+	watchOnlyEnv := os.Getenv("WATCH_ONLY")
+
+	// Watch only mode: true if --watch flag OR WATCH_ONLY=true
+	watchOnly := *watchOnlyFlag || watchOnlyEnv == "true"
 
 	// Validate required environment variables
 	if handle == "" || password == "" {
@@ -497,15 +506,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	//	Fetch and download media
-	fmt.Printf("Fetching likes and downloading media (limit: %d files)...\n", downloadLimit)
-	if err := fetcher.FetchAndDownload(handle, 50, downloadLimit); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+	//	Fetch and download media (skip if --watch flag or WATCH_ONLY env is set)
+	if !watchOnly {
+		fmt.Printf("Fetching likes and downloading media (limit: %d files)...\n", downloadLimit)
+		if err := fetcher.FetchAndDownload(handle, 50, downloadLimit); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
 	}
 
 	// Watch mode - poll every X seconds
-	if err := fetcher.WatchLikes(handle, time.Duration(pollIntervalSec)*time.Second); err != nil {
+	if err := fetcher.WatchLikes(handle, time.Duration(pollIntervalSec)*time.Minute); err != nil {
 		log.Fatal(err)
 	}
 

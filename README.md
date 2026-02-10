@@ -10,7 +10,7 @@ Currently supports **Bluesky**. More platforms planned.
 - Incremental downloads with local cache (only fetches new content)
 - Configurable download limits per run
 - Video support via ffmpeg (handles HLS streams)
-- Docker support for easy deployment
+- Watch mode for continuous monitoring of new likes
 - Content-addressed filenames (SHA256 hash) to avoid duplicates
 
 ## Requirements
@@ -19,19 +19,16 @@ Currently supports **Bluesky**. More platforms planned.
 - ffmpeg (for video downloads)
 - A Bluesky account with an app password
 
-Or just Docker.
-
 ## Setup
 
-### Option 1: Docker (Recommended)
-
-1. Clone the repository:
+1. Clone and build:
 ```bash
 git clone https://github.com/yourusername/LikeLocker.git
 cd LikeLocker
+go build -o likelocker .
 ```
 
-2. Copy the example environment file and fill in your credentials:
+2. Copy the example environment file and configure:
 ```bash
 cp .env.example .env
 ```
@@ -43,35 +40,41 @@ BSKY_PASSWORD=your-app-password
 DOWNLOAD_LIMIT=100
 ```
 
-4. Run with Docker Compose:
+4. Run:
 ```bash
-docker compose up --build
+./likelocker
 ```
 
 Downloaded files will appear in `./downloaded_files/`.
 
-### Option 2: Build from Source
+## Usage
 
-1. Clone and build:
 ```bash
-git clone https://github.com/yourusername/LikeLocker.git
-cd LikeLocker
-go build -o likelocker .
-```
-
-2. Set up environment variables (or create a `.env` file):
-```bash
-export BSKY_HANDLE=your-handle.bsky.social
-export BSKY_PASSWORD=your-app-password
-export DOWNLOAD_DIR=./downloaded_files
-export CACHE_FILE=./downloaded_cache.txt
-export DOWNLOAD_LIMIT=100
-```
-
-3. Run:
-```bash
+# Download liked media up to DOWNLOAD_LIMIT, then watch for new likes
 ./likelocker
+
+# Skip initial download, only watch for new likes
+./likelocker --watch
 ```
+
+### Development
+
+For testing and debugging, you can run directly with Go without building:
+
+```bash
+# Run directly
+go run main.go
+
+# Run with watch flag
+go run main.go --watch
+```
+
+The app runs in two phases:
+
+1. **Initial download** - Fetches your existing likes and downloads media up to `DOWNLOAD_LIMIT`
+2. **Watch mode** - Polls for new likes every `POLL_INTERVAL` seconds and downloads new media
+
+Use `--watch` (or `WATCH_ONLY=true`) to skip phase 1 and go straight to watching.
 
 ## Configuration
 
@@ -82,6 +85,10 @@ export DOWNLOAD_LIMIT=100
 | `DOWNLOAD_DIR` | Directory to save downloaded media | `./downloaded_files` |
 | `CACHE_FILE` | File tracking what's already downloaded | `./downloaded_cache.txt` |
 | `DOWNLOAD_LIMIT` | Max files to download per run | `100` |
+| `POLL_INTERVAL` | Seconds between checks in watch mode | `30` |
+| `WATCH_ONLY` | Skip initial download, only watch for new likes | `false` |
+
+You can also use the `--watch` flag instead of setting `WATCH_ONLY=true`.
 
 ### App Passwords
 
