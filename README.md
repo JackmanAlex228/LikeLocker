@@ -88,6 +88,7 @@ Use `--watch` (or `WATCH_ONLY=true`) to skip phase 1 and go straight to watching
 | `POLL_INTERVAL` | Seconds between checks in watch mode | `30` |
 | `WATCH_ONLY` | Skip initial download, only watch for new likes | `false` |
 | `NTFY_TOPIC` | ntfy.sh topic for push notifications (disabled if empty) | - |
+| `HEALTH_PORT` | Port for health endpoint (disabled if empty) | - |
 
 You can also use the `--watch` flag instead of setting `WATCH_ONLY=true`.
 
@@ -100,6 +101,16 @@ Set `NTFY_TOPIC=your-topic-name` in your `.env` to receive push notifications wh
 3. Set `NTFY_TOPIC=your-topic-name` in `.env`
 
 You'll receive a notification whenever new liked media is downloaded in watch mode.
+
+### Uptime Kuma
+
+Set `HEALTH_PORT=8080` in your `.env` to enable a health endpoint for [Uptime Kuma](https://github.com/louislam/uptime-kuma):
+
+1. Add a new monitor in Uptime Kuma
+2. Monitor type: HTTP(s)
+3. URL: `http://your-server:8080/health`
+
+This lets you monitor if LikeLocker is running and get alerts if it stops.
 
 ### App Passwords
 

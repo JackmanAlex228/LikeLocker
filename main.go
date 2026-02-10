@@ -527,6 +527,21 @@ func main() {
 		notify(ntfyTopic, "LikeLocker started")
 	}
 
+	// Start health check server for Uptime Kuma
+	healthPort := os.Getenv("HEALTH_PORT")
+	if healthPort != "" {
+		go func() {
+			http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				fmt.Fprintf(w, "OK")
+			})
+			fmt.Printf("Health endpoint listening on :%s/health\n", healthPort)
+			if err := http.ListenAndServe(":"+healthPort, nil); err != nil {
+				fmt.Fprintf(os.Stderr, "Health server error: %v\n", err)
+			}
+		}()
+	}
+
 	//	Fetch and download media (skip if --watch flag or WATCH_ONLY env is set)
 	if !watchOnly {
 		fmt.Printf("Fetching likes and downloading media (limit: %d files)...\n", downloadLimit)
