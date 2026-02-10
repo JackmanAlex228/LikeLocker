@@ -30,6 +30,19 @@ type MediaFetcher struct {
 	downloadedFiles map[string]bool // In-memory cache
 }
 
+// notify sends a push notification via ntfy.sh (if topic is configured)
+func notify(topic, message string) {
+	if topic == "" {
+		return
+	}
+	resp, err := http.Post("https://ntfy.sh/"+topic, "text/plain", strings.NewReader(message))
+	if err != nil {
+		fmt.Printf("Warning: failed to send notification: %v\n", err)
+		return
+	}
+	resp.Body.Close()
+}
+
 // NewMediaFetcher(handle, password, downloadDir, cacheFile string) : MediaFetcher!
 func NewMediaFetcher(handle, password, downloadDir, cacheFile string) (*MediaFetcher, error) {
 	// Create download directory
@@ -166,7 +179,7 @@ func (mf *MediaFetcher) FetchAndDownload(actor string, batchSize int64, download
 }
 
 // WatchLikes polls for new likes and prints when new media is found
-func (mf *MediaFetcher) WatchLikes(actor string, interval time.Duration) error {
+func (mf *MediaFetcher) WatchLikes(actor string, interval time.Duration, ntfyTopic string) error {
 	seen := make(map[string]bool)
 
 	// Initial load - mark existing likes as seen
@@ -201,6 +214,7 @@ func (mf *MediaFetcher) WatchLikes(actor string, interval time.Duration) error {
 				fmt.Printf("Error downloading media: %v\n", err)
 			} else if downloaded > 0 {
 				fmt.Printf("Downloaded %d file(s)\n", downloaded)
+				notify(ntfyTopic, fmt.Sprintf("Downloaded %d file(s) from new like", downloaded))
 			}
 		}
 	}
@@ -462,7 +476,7 @@ func main() {
 	downloadDir := os.Getenv("DOWNLOAD_DIR")
 	cacheFile := os.Getenv("CACHE_FILE")
 	downloadLimitStr := os.Getenv("DOWNLOAD_LIMIT")
-	pollInterval := os.Getenv("POLL_INTERVAL")
+	pollIntervalMinutes := os.Getenv("POLL_INTERVAL_MINUTES")
 	watchOnlyEnv := os.Getenv("WATCH_ONLY")
 
 	// Watch only mode: true if --watch flag OR WATCH_ONLY=true
@@ -483,8 +497,8 @@ func main() {
 	if downloadLimitStr == "" {
 		downloadLimitStr = "100"
 	}
-	if pollInterval == "" {
-		pollInterval = "30"
+	if pollIntervalMinutes == "" {
+		pollIntervalMinutes = "30"
 	}
 
 	// Parse download limit
@@ -494,7 +508,7 @@ func main() {
 	}
 
 	// Parse poll interval (in seconds)
-	pollIntervalSec, err := strconv.Atoi(pollInterval)
+	pollIntervalMin, err := strconv.Atoi(pollIntervalMinutes)
 	if err != nil {
 		log.Fatalf("Invalid POLL_INTERVAL value: %v", err)
 	}
@@ -504,6 +518,13 @@ func main() {
 	if err2 != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing: %v\n", err2)
 		os.Exit(1)
+	}
+
+	// Get ntfy topic for notifications
+	ntfyTopic := os.Getenv("NTFY_TOPIC")
+	if ntfyTopic != "" {
+		fmt.Printf("Notifications enabled via ntfy.sh/%s\n", ntfyTopic)
+		notify(ntfyTopic, "LikeLocker started")
 	}
 
 	//	Fetch and download media (skip if --watch flag or WATCH_ONLY env is set)
@@ -516,7 +537,7 @@ func main() {
 	}
 
 	// Watch mode - poll every X seconds
-	if err := fetcher.WatchLikes(handle, time.Duration(pollIntervalSec)*time.Minute); err != nil {
+	if err := fetcher.WatchLikes(handle, time.Duration(pollIntervalMin)*time.Minute, ntfyTopic); err != nil {
 		log.Fatal(err)
 	}
 

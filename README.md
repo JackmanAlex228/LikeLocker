@@ -87,8 +87,19 @@ Use `--watch` (or `WATCH_ONLY=true`) to skip phase 1 and go straight to watching
 | `DOWNLOAD_LIMIT` | Max files to download per run | `100` |
 | `POLL_INTERVAL` | Seconds between checks in watch mode | `30` |
 | `WATCH_ONLY` | Skip initial download, only watch for new likes | `false` |
+| `NTFY_TOPIC` | ntfy.sh topic for push notifications (disabled if empty) | - |
 
 You can also use the `--watch` flag instead of setting `WATCH_ONLY=true`.
+
+### Push Notifications
+
+Set `NTFY_TOPIC=your-topic-name` in your `.env` to receive push notifications when new media is downloaded.
+
+1. Install the [ntfy app](https://ntfy.sh) on your phone (iOS/Android)
+2. Subscribe to your topic (e.g., `your-topic-name`)
+3. Set `NTFY_TOPIC=your-topic-name` in `.env`
+
+You'll receive a notification whenever new liked media is downloaded in watch mode.
 
 ### App Passwords
 
