@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bluesky-social/indigo/api/atproto"
@@ -28,6 +29,7 @@ type MediaFetcher struct {
 	downloadDir     string          // Where files are saved (external drive)
 	cacheFile       string          // Local cache file tracking downloads
 	downloadedFiles map[string]bool // In-memory cache
+	refreshMutex 		sync.Mutex			// protects token refresh
 }
 
 // notify sends a push notification via ntfy.sh (if topic is configured)
@@ -178,6 +180,23 @@ func (mf *MediaFetcher) FetchAndDownload(actor string, batchSize int64, download
 	return nil
 }
 
+// refreshToken refreshes the access token using the refresh token
+func (mf *MediaFetcher) refreshToken(ntfyTopic string) error {
+	mf.refreshMutex.Lock()
+	defer mf.refreshMutex.Unlock()
+	fmt.Println("Refreshing authentication token...")
+	notify(ntfyTopic, fmt.Sprintf("Refreshing authentication token.."))
+	refreshed, err := atproto.ServerRefreshSession(context.Background(), mf.client)
+	if err != nil {
+		notify(ntfyTopic, fmt.Sprintf("failed to refresh token: %w", err))
+		return fmt.Errorf("failed to refresh token: %w", err)
+	}
+	mf.client.Auth.AccessJwt = refreshed.AccessJwt
+	mf.client.Auth.RefreshJwt = refreshed.RefreshJwt
+	fmt.Println("Token refreshed successfully")
+	return nil
+}
+
 // WatchLikes polls for new likes and prints when new media is found
 func (mf *MediaFetcher) WatchLikes(actor string, interval time.Duration, ntfyTopic string) error {
 	seen := make(map[string]bool)
@@ -198,8 +217,22 @@ func (mf *MediaFetcher) WatchLikes(actor string, interval time.Duration, ntfyTop
 
 		resp, err := bsky.FeedGetActorLikes(context.Background(), mf.client, actor, "", 50)
 		if err != nil {
-			fmt.Printf("Error fetching likes: %v\n", err)
-			continue
+			// Check if token expired and try to refresh
+			if strings.Contains(err.Error(), "ExpiredToken") {
+				if refreshErr := mf.refreshToken(ntfyTopic); refreshErr != nil {
+					fmt.Printf("Error refreshing token: %v\n", refreshErr)
+					continue
+				}
+				// Retry the request after refresh
+				resp, err = bsky.FeedGetActorLikes(context.Background(), mf.client, actor, "", 50)
+				if err != nil {
+					fmt.Printf("Error fetching likes after refresh: %v\n", err)
+					continue
+				}
+			} else {
+				fmt.Printf("Error fetching likes: %v\n", err)
+				continue
+			}
 		}
 
 		for _, post := range resp.Feed {
