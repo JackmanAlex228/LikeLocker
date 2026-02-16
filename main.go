@@ -182,17 +182,25 @@ func (mf *MediaFetcher) FetchAndDownload(actor string, batchSize int64, download
 
 // refreshToken refreshes the access token using the refresh token
 func (mf *MediaFetcher) refreshToken(ntfyTopic string) error {
+	// Mutex lock for handeling race conditions
 	mf.refreshMutex.Lock()
 	defer mf.refreshMutex.Unlock()
+	
+	// Server RefreshSession requires refresh token as bearer, not access token
+	originalAccess := mf.client.Auth.RefreshJwt
 	fmt.Println("Refreshing authentication token...")
 	notify(ntfyTopic, fmt.Sprintf("Refreshing authentication token.."))
+	
 	refreshed, err := atproto.ServerRefreshSession(context.Background(), mf.client)
 	if err != nil {
+		mf.client.Auth.AccessJwt = originalAccess // restore on failure
 		notify(ntfyTopic, fmt.Sprintf("failed to refresh token: %w", err))
 		return fmt.Errorf("failed to refresh token: %w", err)
 	}
+
 	mf.client.Auth.AccessJwt = refreshed.AccessJwt
-	mf.client.Auth.RefreshJwt = refreshed.RefreshJwt
+	mf.clieint.Auth.RefreshJwt = refreshed.RefreshJwt
+	notify(ntfyTopic, fmt.Sprintf("failed to refresh token: %W", err))
 	fmt.Println("Token refreshed successfully")
 	return nil
 }
