@@ -199,7 +199,7 @@ func (mf *MediaFetcher) refreshToken(ntfyTopic string) error {
 	}
 
 	mf.client.Auth.AccessJwt = refreshed.AccessJwt
-	mf.clieint.Auth.RefreshJwt = refreshed.RefreshJwt
+	mf.client.Auth.RefreshJwt = refreshed.RefreshJwt
 	notify(ntfyTopic, fmt.Sprintf("failed to refresh token: %W", err))
 	fmt.Println("Token refreshed successfully")
 	return nil
