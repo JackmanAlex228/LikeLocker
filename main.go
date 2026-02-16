@@ -186,21 +186,24 @@ func (mf *MediaFetcher) refreshToken(ntfyTopic string) error {
 	mf.refreshMutex.Lock()
 	defer mf.refreshMutex.Unlock()
 	
-	// Server RefreshSession requires refresh token as bearer, not access token
-	originalAccess := mf.client.Auth.RefreshJwt
-	fmt.Println("Refreshing authentication token...")
-	notify(ntfyTopic, fmt.Sprintf("Refreshing authentication token.."))
+	fmt.Println("Refreshing authentication token...")	
+	notify(ntfyTopic, "Refreshing authentication token..")
+
+	// ServerRefreshSession requires refresh token as bearer, not access token
+	originalAccess := mf.client.Auth.AccessJwt						// save the ACCESS token
+	mf.client.Auth.AccessJwt = mf.client.Auth.RefreshJwt	// swap in the REFRESH token
 	
 	refreshed, err := atproto.ServerRefreshSession(context.Background(), mf.client)
 	if err != nil {
-		mf.client.Auth.AccessJwt = originalAccess // restore on failure
-		notify(ntfyTopic, fmt.Sprintf("failed to refresh token: %w", err))
+		fmt.Printf("DEBUG refresh error: %w\n", err)
+		mf.client.Auth.AccessJwt = originalAccess // restore original access token
+		notify(ntfyTopic, fmt.Sprintf("failed to refresh token: %v", err))
 		return fmt.Errorf("failed to refresh token: %w", err)
 	}
 
 	mf.client.Auth.AccessJwt = refreshed.AccessJwt
 	mf.client.Auth.RefreshJwt = refreshed.RefreshJwt
-	notify(ntfyTopic, fmt.Sprintf("failed to refresh token: %W", err))
+	notify(ntfyTopic, "Token refreshed successfully")
 	fmt.Println("Token refreshed successfully")
 	return nil
 }
