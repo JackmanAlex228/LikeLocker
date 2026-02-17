@@ -1,9 +1,13 @@
-module bsky-liked-media-downloader
+module bsky-downloader
 
 go 1.24
 
 require (
-	github.com/bluesky-social/indigo v0.0.0-20251114034233-c10ddb5cf518 // indirect
+	github.com/bluesky-social/indigo v0.0.0-20251114034233-c10ddb5cf518
+	github.com/joho/godotenv v1.5.1
+)
+
+require (
 	github.com/earthboundkid/versioninfo/v2 v2.24.1 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/go-logr/logr v1.4.1 // indirect
@@ -26,7 +30,6 @@ require (
 	github.com/ipfs/go-log/v2 v2.5.1 // indirect
 	github.com/ipfs/go-metrics-interface v0.0.1 // indirect
 	github.com/jbenet/goprocess v0.1.4 // indirect
-	github.com/joho/godotenv v1.5.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.7 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/minio/sha256-simd v1.0.1 // indirect
