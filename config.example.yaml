@@ -1,0 +1,14 @@
+bsky:
+  handle: your-handle.bsky.social
+  password: your-app-password
+
+download:
+  dir: ./downloaded_files
+  cache_file: ./downloaded_cache.txt
+  limit: 100
+
+poll_interval_minutes: 30
+
+# Leave empty to disable
+ntfy_topic:
+health_port:

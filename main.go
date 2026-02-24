@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"gopkg.in/yaml.v3"
 	"flag"
 	"fmt"
 	"io"
@@ -13,7 +14,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,7 +21,6 @@ import (
 	"github.com/bluesky-social/indigo/api/atproto"
 	"github.com/bluesky-social/indigo/api/bsky"
 	"github.com/bluesky-social/indigo/xrpc"
-	"github.com/joho/godotenv"
 )
 
 type MediaFetcher struct {
@@ -30,6 +29,43 @@ type MediaFetcher struct {
 	cacheFile       string          // Local cache file tracking downloads
 	downloadedFiles map[string]bool // In-memory cache
 	refreshMutex 		sync.Mutex			// protects token refresh
+}
+
+type Config struct {
+	Bsky struct {
+		Handle 						string	`yaml:"handle"`
+		Password 					string	`yaml:"password`
+	} `yaml:"bsky"`
+	Download struct {
+		Dir								string 	`yaml:"dir"`
+		CacheFile					string	`yaml:"cache_file"`
+		Limit							int			`yaml:"limit"`
+	} `yaml:"download"`
+	PollIntervalMinutes int			`yaml:"pol_interval_minutes"`
+	NtfyTopic						string	`yaml:"ntfy_topic"`
+	HealthPort					string	`yaml:"health_port"`
+}
+
+func loadConfig(path string) (*Config, error) {
+	// Set defaults
+	cfg := Config{
+		PollIntervalMinutes:	30,
+		HealthPort: 					"8080",
+	}
+	cfg.Download.Limit = 100
+	cfg.Download.Dir = "./downloaded_files"
+	cfg.Download.CacheFile = "./downloaded_cache.txt"
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	// Unmarshal overwrites only fields present in YAML
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
 }
 
 // notify sends a push notification via ntfy.sh (if topic is configured)
@@ -511,51 +547,28 @@ func main() {
 	watchOnlyFlag := flag.Bool("watch", false, "Skip initial download, only watch for new likes")
 	flag.Parse()
 
-	// Load environment variables from .env file (optional - Docker passes env vars directly)
-	_ = godotenv.Load() // Ignore error if .env doesn't exist
+	cfg, err := loadConfig("config.yaml")
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	//	Configuration from environment variables
-	handle := os.Getenv("BSKY_HANDLE")
-	password := os.Getenv("BSKY_PASSWORD")
-	downloadDir := os.Getenv("DOWNLOAD_DIR")
-	cacheFile := os.Getenv("CACHE_FILE")
-	downloadLimitStr := os.Getenv("DOWNLOAD_LIMIT")
-	pollIntervalMinutes := os.Getenv("POLL_INTERVAL_MINUTES")
-	watchOnlyEnv := os.Getenv("WATCH_ONLY")
+	// Configuration from config.yaml
+	handle := cfg.Bsky.Handle
+	password := cfg.Bsky.Password
+	downloadDir := cfg.Download.Dir
+	cacheFile := cfg.Download.CacheFile
+	downloadLimit := cfg.Download.Limit
+	pollIntervalMinutes := cfg.PollIntervalMinutes
+	ntfyTopic := cfg.NtfyTopic
+	healthPort := cfg.HealthPort
 
-	// Watch only mode: true if --watch flag OR WATCH_ONLY=true
-	watchOnly := *watchOnlyFlag || watchOnlyEnv == "true"
+	// Watch only mode: true if --watch flag
+	watchOnly := *watchOnlyFlag
 
 	// Validate required environment variables
 	if handle == "" || password == "" {
-		log.Fatal("BSKY_HANDLE and BSKY_PASSWORD must be set in .env file")
-	}
-
-	// Set defaults if not specified
-	if downloadDir == "" {
-		downloadDir = "./downloaded_files"
-	}
-	if cacheFile == "" {
-		cacheFile = "./downloaded_cache.txt"
-	}
-	if downloadLimitStr == "" {
-		downloadLimitStr = "100"
-	}
-	if pollIntervalMinutes == "" {
-		pollIntervalMinutes = "30"
-	}
-
-	// Parse download limit
-	downloadLimit, err := strconv.Atoi(downloadLimitStr)
-	if err != nil {
-		log.Fatalf("Invalid DOWNLOAD_LIMIT value: %v", err)
-	}
-
-	// Parse poll interval (in seconds)
-	pollIntervalMin, err := strconv.Atoi(pollIntervalMinutes)
-	if err != nil {
-		log.Fatalf("Invalid POLL_INTERVAL value: %v", err)
-	}
+		log.Fatal("BSKY_HANDLE and BSKY_PASSWORD must be set in config.yaml")
+	}	
 
 	//	Create fetcher
 	fetcher, err2 := NewMediaFetcher(handle, password, downloadDir, cacheFile)
@@ -565,14 +578,12 @@ func main() {
 	}
 
 	// Get ntfy topic for notifications
-	ntfyTopic := os.Getenv("NTFY_TOPIC")
 	if ntfyTopic != "" {
 		fmt.Printf("Notifications enabled via ntfy.sh/%s\n", ntfyTopic)
 		notify(ntfyTopic, "LikeLocker started")
 	}
 
 	// Start health check server for Uptime Kuma
-	healthPort := os.Getenv("HEALTH_PORT")
 	if healthPort != "" {
 		go func() {
 			http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -586,7 +597,7 @@ func main() {
 		}()
 	}
 
-	//	Fetch and download media (skip if --watch flag or WATCH_ONLY env is set)
+	//	Fetch and download media (skip if --watch flag)
 	if !watchOnly {
 		fmt.Printf("Fetching likes and downloading media (limit: %d files)...\n", downloadLimit)
 		if err := fetcher.FetchAndDownload(handle, 50, downloadLimit); err != nil {
@@ -596,7 +607,7 @@ func main() {
 	}
 
 	// Watch mode - poll every X seconds
-	if err := fetcher.WatchLikes(handle, time.Duration(pollIntervalMin)*time.Minute, ntfyTopic); err != nil {
+	if err := fetcher.WatchLikes(handle, time.Duration(pollIntervalMinutes)*time.Minute, ntfyTopic); err != nil {
 		log.Fatal(err)
 	}
 

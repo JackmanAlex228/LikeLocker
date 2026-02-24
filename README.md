@@ -28,16 +28,27 @@ cd LikeLocker
 go build -o likelocker .
 ```
 
-2. Copy the example environment file and configure:
+2. Copy the example config file and configure:
 ```bash
-cp .env.example .env
+cp config.example.yaml config.yaml
 ```
 
-3. Edit `.env` with your Bluesky credentials:
-```
-BSKY_HANDLE=your-handle.bsky.social
-BSKY_PASSWORD=your-app-password
-DOWNLOAD_LIMIT=100
+3. Edit `config.yaml` with your Bluesky credentials:
+```yaml
+bsky:
+  handle: your-handle.bsky.social
+  password: your-app-password
+
+download:
+  dir: ./downloaded_files
+  cache_file: ./downloaded_cache.txt
+  limit: 100
+
+poll_interval_minutes: 30
+
+# Leave empty to disable
+ntfy_topic:
+health_port:
 ```
 
 4. Run:
@@ -71,40 +82,39 @@ go run main.go --watch
 
 The app runs in two phases:
 
-1. **Initial download** - Fetches your existing likes and downloads media up to `DOWNLOAD_LIMIT`
-2. **Watch mode** - Polls for new likes every `POLL_INTERVAL` seconds and downloads new media
+1. **Initial download** - Fetches your existing likes and downloads media up to `download.limit`
+2. **Watch mode** - Polls for new likes every `poll_interval_minutes` minutes and downloads new media
 
-Use `--watch` (or `WATCH_ONLY=true`) to skip phase 1 and go straight to watching.
+Use `--watch` to skip phase 1 and go straight to watching.
 
 ## Configuration
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `BSKY_HANDLE` | Your Bluesky handle | Required |
-| `BSKY_PASSWORD` | App password (not your main password) | Required |
-| `DOWNLOAD_DIR` | Directory to save downloaded media | `./downloaded_files` |
-| `CACHE_FILE` | File tracking what's already downloaded | `./downloaded_cache.txt` |
-| `DOWNLOAD_LIMIT` | Max files to download per run | `100` |
-| `POLL_INTERVAL` | Seconds between checks in watch mode | `30` |
-| `WATCH_ONLY` | Skip initial download, only watch for new likes | `false` |
-| `NTFY_TOPIC` | ntfy.sh topic for push notifications (disabled if empty) | - |
-| `HEALTH_PORT` | Port for health endpoint (disabled if empty) | - |
+| Key | Description | Default |
+|-----|-------------|---------|
+| `bsky.handle` | Your Bluesky handle | Required |
+| `bsky.password` | App password (not your main password) | Required |
+| `download.dir` | Directory to save downloaded media | `./downloaded_files` |
+| `download.cache_file` | File tracking what's already downloaded | `./downloaded_cache.txt` |
+| `download.limit` | Max files to download per run | `100` |
+| `poll_interval_minutes` | Minutes between checks in watch mode | `30` |
+| `ntfy_topic` | ntfy.sh topic for push notifications (disabled if empty) | - |
+| `health_port` | Port for health endpoint (disabled if empty) | - |
 
-You can also use the `--watch` flag instead of setting `WATCH_ONLY=true`.
+You can use the `--watch` flag to skip the initial download and go straight to watching.
 
 ### Push Notifications
 
-Set `NTFY_TOPIC=your-topic-name` in your `.env` to receive push notifications when new media is downloaded.
+Set `ntfy_topic` in your `config.yaml` to receive push notifications when new media is downloaded.
 
 1. Install the [ntfy app](https://ntfy.sh) on your phone (iOS/Android)
 2. Subscribe to your topic (e.g., `your-topic-name`)
-3. Set `NTFY_TOPIC=your-topic-name` in `.env`
+3. Set `ntfy_topic: your-topic-name` in `config.yaml`
 
 You'll receive a notification whenever new liked media is downloaded in watch mode.
 
 ### Uptime Kuma
 
-Set `HEALTH_PORT=8080` in your `.env` to enable a health endpoint for [Uptime Kuma](https://github.com/louislam/uptime-kuma):
+Set `health_port: 8080` in your `config.yaml` to enable a health endpoint for [Uptime Kuma](https://github.com/louislam/uptime-kuma):
 
 1. Add a new monitor in Uptime Kuma
 2. Monitor type: HTTP(s)
