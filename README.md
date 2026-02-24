@@ -17,6 +17,7 @@ Currently supports **Bluesky**. More platforms planned.
 
 - Go 1.24+ (for building from source)
 - ffmpeg (for video downloads)
+- exiftool (for image metadata)
 - A Bluesky account with an app password
 
 ## Setup
@@ -133,9 +134,25 @@ For Bluesky, use an [app password](https://bsky.app/settings/app-passwords) inst
 3. Extracts media URLs from posts with images or videos
 4. Checks each URL against the local cache
 5. Downloads new media, skipping already-downloaded files
-6. Updates the cache after each successful download
+6. Embeds metadata (author handle, post URL) into each file
+7. Updates the cache after each successful download
 
-Files are named using a SHA256 hash of the source URL, which prevents duplicates even if the same image appears in multiple posts.
+### File Naming
+
+Files are named using the format `author_hash.ext` where:
+- `author` is the Bluesky handle of the post author
+- `hash` is a SHA256 hash of the source URL (prevents duplicates)
+- `ext` is the original file extension
+
+Example: `johndoe.bsky.social_a1b2c3d4...mp4`
+
+### Embedded Metadata
+
+Each downloaded file contains embedded metadata for easy identification:
+- **Images**: EXIF/XMP fields `Artist` (author handle) and `Source` (post URL)
+- **Videos**: MP4 metadata fields `artist` and `comment`
+
+On first run, existing files in old format (hash-only names) will be automatically migrated to the new format with metadata.
 
 ## Roadmap
 

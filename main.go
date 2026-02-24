@@ -68,6 +68,44 @@ func loadConfig(path string) (*Config, error) {
 	return &cfg, nil
 }
 
+// sanitizeForFilename removes or replaces characters that are invalid in filenames
+func sanitizeForFilename(s string) string {
+	var result strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-' {
+			result.WriteRune(r)
+		}
+	}
+	return result.String()
+}
+
+// embedImageMetadata uses exiftool to add metadata to an image
+func embedImageMetadata(filepath, author, postURL string) error {
+	cmd := exec.Command("exiftool",
+		"-overwrite_original",
+		"-Artist="+author,
+		"-Source="+postURL,
+		filepath)
+	return cmd.Run()
+}
+
+// readImageMetadata reads Artist and Source metadata from an image using exiftool
+func readImageMetadata(filepath string) (author, postURL string, err error) {
+	cmd := exec.Command("exiftool", "-Artist", "-Source", "-s", "-s", "-s", filepath)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", "", err
+	}
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) >= 1 {
+		author = strings.TrimSpace(lines[0])
+	}
+	if len(lines) >= 2 {
+		postURL = strings.TrimSpace(lines[1])
+	}
+	return author, postURL, nil
+}
+
 // notify sends a push notification via ntfy.sh (if topic is configured)
 func notify(topic, message string) {
 	if topic == "" {
@@ -164,11 +202,15 @@ func (mf *MediaFetcher) FetchAndDownload(actor string, batchSize int64, download
 				continue
 			}
 
+			// Extract author info and post URL
+			author := post.Post.Author.Handle
+			postURL := post.Post.Uri
+
 			embed := post.Post.Embed
 
 			// Handle different embed types by checking which field is populated
 			if embed.EmbedImages_View != nil {
-				downloaded, err := mf.downloadImages(embed.EmbedImages_View.Images, downloadLimit-downloadCount)
+				downloaded, err := mf.downloadImages(embed.EmbedImages_View.Images, downloadLimit-downloadCount, author, postURL)
 				downloadCount += downloaded
 				if err != nil {
 					fmt.Printf("Error downloading images: %v\n", err)
@@ -176,7 +218,7 @@ func (mf *MediaFetcher) FetchAndDownload(actor string, batchSize int64, download
 			}
 
 			if embed.EmbedVideo_View != nil && downloadCount < downloadLimit {
-				downloaded, err := mf.downloadVideo(embed.EmbedVideo_View)
+				downloaded, err := mf.downloadVideo(embed.EmbedVideo_View, author, postURL)
 				downloadCount += downloaded
 				if err != nil {
 					fmt.Printf("Error downloading video: %v\n", err)
@@ -188,14 +230,14 @@ func (mf *MediaFetcher) FetchAndDownload(actor string, batchSize int64, download
 				if embed.EmbedRecordWithMedia_View.Media != nil {
 					media := embed.EmbedRecordWithMedia_View.Media
 					if media.EmbedImages_View != nil {
-						downloaded, err := mf.downloadImages(media.EmbedImages_View.Images, downloadLimit-downloadCount)
+						downloaded, err := mf.downloadImages(media.EmbedImages_View.Images, downloadLimit-downloadCount, author, postURL)
 						downloadCount += downloaded
 						if err != nil {
 							fmt.Printf("Error downloading images: %v\n", err)
 						}
 					}
 					if media.EmbedVideo_View != nil && downloadCount < downloadLimit {
-						downloaded, err := mf.downloadVideo(media.EmbedVideo_View)
+						downloaded, err := mf.downloadVideo(media.EmbedVideo_View, author, postURL)
 						downloadCount += downloaded
 						if err != nil {
 							fmt.Printf("Error downloading video: %v\n", err)
@@ -289,7 +331,10 @@ func (mf *MediaFetcher) WatchLikes(actor string, interval time.Duration, ntfyTop
 			seen[post.Post.Uri] = true
 			fmt.Printf("New like: %s\n", post.Post.Uri)
 
-			downloaded, err := mf.downloadPostMedia(post.Post.Embed)
+			author := post.Post.Author.Handle
+			postURL := post.Post.Uri
+
+			downloaded, err := mf.downloadPostMedia(post.Post.Embed, author, postURL)
 			if err != nil {
 				fmt.Printf("Error downloading media: %v\n", err)
 			} else if downloaded > 0 {
@@ -388,7 +433,7 @@ func (mf *MediaFetcher) isDownloaded(filename string) bool {
 }
 
 // downloadPostMedia downloads any media from a single post's embed
-func (mf *MediaFetcher) downloadPostMedia(embed *bsky.FeedDefs_PostView_Embed) (int, error) {
+func (mf *MediaFetcher) downloadPostMedia(embed *bsky.FeedDefs_PostView_Embed, author, postURL string) (int, error) {
 	if embed == nil {
 		return 0, nil
 	}
@@ -396,7 +441,7 @@ func (mf *MediaFetcher) downloadPostMedia(embed *bsky.FeedDefs_PostView_Embed) (
 	downloaded := 0
 
 	if embed.EmbedImages_View != nil {
-		n, err := mf.downloadImages(embed.EmbedImages_View.Images, len(embed.EmbedImages_View.Images))
+		n, err := mf.downloadImages(embed.EmbedImages_View.Images, len(embed.EmbedImages_View.Images), author, postURL)
 		downloaded += n
 		if err != nil {
 			return downloaded, err
@@ -404,7 +449,7 @@ func (mf *MediaFetcher) downloadPostMedia(embed *bsky.FeedDefs_PostView_Embed) (
 	}
 
 	if embed.EmbedVideo_View != nil {
-		n, err := mf.downloadVideo(embed.EmbedVideo_View)
+		n, err := mf.downloadVideo(embed.EmbedVideo_View, author, postURL)
 		downloaded += n
 		if err != nil {
 			return downloaded, err
@@ -414,14 +459,14 @@ func (mf *MediaFetcher) downloadPostMedia(embed *bsky.FeedDefs_PostView_Embed) (
 	if embed.EmbedRecordWithMedia_View != nil && embed.EmbedRecordWithMedia_View.Media != nil {
 		media := embed.EmbedRecordWithMedia_View.Media
 		if media.EmbedImages_View != nil {
-			n, err := mf.downloadImages(media.EmbedImages_View.Images, len(media.EmbedImages_View.Images))
+			n, err := mf.downloadImages(media.EmbedImages_View.Images, len(media.EmbedImages_View.Images), author, postURL)
 			downloaded += n
 			if err != nil {
 				return downloaded, err
 			}
 		}
 		if media.EmbedVideo_View != nil {
-			n, err := mf.downloadVideo(media.EmbedVideo_View)
+			n, err := mf.downloadVideo(media.EmbedVideo_View, author, postURL)
 			downloaded += n
 			if err != nil {
 				return downloaded, err
@@ -432,14 +477,14 @@ func (mf *MediaFetcher) downloadPostMedia(embed *bsky.FeedDefs_PostView_Embed) (
 	return downloaded, nil
 }
 
-// MediaFetcher : downloadImages(images []bsky.FeedDefs_FeedViewPost, limit int) : (int, error)
-func (mf *MediaFetcher) downloadImages(images []*bsky.EmbedImages_ViewImage, limit int) (int, error) {
+// MediaFetcher : downloadImages(images, limit, author, postURL) : (int, error)
+func (mf *MediaFetcher) downloadImages(images []*bsky.EmbedImages_ViewImage, limit int, author, postURL string) (int, error) {
 	downloadCount := 0
 	for _, img := range images {
 		if downloadCount >= limit {
 			break
 		}
-		downloaded, err := mf.downloadFile(img.Fullsize, "image")
+		downloaded, err := mf.downloadFile(img.Fullsize, "image", author, postURL)
 		if err != nil {
 			return downloadCount, err
 		}
@@ -448,17 +493,18 @@ func (mf *MediaFetcher) downloadImages(images []*bsky.EmbedImages_ViewImage, lim
 	return downloadCount, nil
 }
 
-// MediaFetcher : downloadVideo(video bsky.EmbedVideo_View) : (int, error)
-// Uses ffmpeg to download HLS stream and convert to mp4
-func (mf *MediaFetcher) downloadVideo(video *bsky.EmbedVideo_View) (int, error) {
+// MediaFetcher : downloadVideo(video, author, postURL) : (int, error)
+// Uses ffmpeg to download HLS stream and convert to mp4 with embedded metadata
+func (mf *MediaFetcher) downloadVideo(video *bsky.EmbedVideo_View, author, postURL string) (int, error) {
 	if video.Playlist == "" {
 		return 0, nil
 	}
 
-	// Generate filename from URL hash
+	// Generate filename from URL hash with author prefix
 	hash := sha256.Sum256([]byte(video.Playlist))
 	cacheKey := hex.EncodeToString(hash[:])
-	filename := cacheKey + ".mp4"
+	sanitizedAuthor := sanitizeForFilename(author)
+	filename := sanitizedAuthor + "_" + cacheKey + ".mp4"
 	outputPath := filepath.Join(mf.downloadDir, filename)
 
 	// Check if already downloaded
@@ -469,8 +515,13 @@ func (mf *MediaFetcher) downloadVideo(video *bsky.EmbedVideo_View) (int, error) 
 
 	fmt.Printf("Downloading video via ffmpeg: %s\n", video.Playlist)
 
-	// Use ffmpeg to download and convert HLS stream to mp4
-	cmd := exec.Command("ffmpeg", "-i", video.Playlist, "-c", "copy", "-y", outputPath)
+	// Use ffmpeg to download and convert HLS stream to mp4 with metadata
+	cmd := exec.Command("ffmpeg",
+		"-i", video.Playlist,
+		"-c", "copy",
+		"-metadata", "artist="+author,
+		"-metadata", "comment="+postURL,
+		"-y", outputPath)
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 
@@ -487,8 +538,8 @@ func (mf *MediaFetcher) downloadVideo(video *bsky.EmbedVideo_View) (int, error) 
 	return 1, nil
 }
 
-// MediaFetcher : downloadFile(url, mediaType string) : (int, error)
-func (mf *MediaFetcher) downloadFile(url, mediaType string) (int, error) {
+// MediaFetcher : downloadFile(url, mediaType, author, postURL string) : (int, error)
+func (mf *MediaFetcher) downloadFile(url, mediaType, author, postURL string) (int, error) {
 	//	Generate cache key from URL
 	hash := sha256.Sum256([]byte(url))
 	cacheKey := hex.EncodeToString(hash[:])
@@ -503,8 +554,10 @@ func (mf *MediaFetcher) downloadFile(url, mediaType string) (int, error) {
 			ext = ".mp4"
 		}
 	}
-	filename := cacheKey + ext
-	filepath := filepath.Join(mf.downloadDir, filename)
+	// Build filename with author prefix
+	sanitizedAuthor := sanitizeForFilename(author)
+	filename := sanitizedAuthor + "_" + cacheKey + ext
+	filePath := filepath.Join(mf.downloadDir, filename)
 	//	Check if already cached
 	if mf.isDownloaded(filename) {
 		fmt.Printf("Cache hit: %s\n", filename)
@@ -521,7 +574,7 @@ func (mf *MediaFetcher) downloadFile(url, mediaType string) (int, error) {
 		return 0, fmt.Errorf("bad status: %s", resp.Status)
 	}
 	//	Create file
-	out, err := os.Create(filepath)
+	out, err := os.Create(filePath)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create file: %w", err)
 	}
@@ -530,6 +583,13 @@ func (mf *MediaFetcher) downloadFile(url, mediaType string) (int, error) {
 	_, err = io.Copy(out, resp.Body)
 	if err != nil {
 		return 0, fmt.Errorf("failed to write file: %w", err)
+	}
+
+	// Embed metadata in images
+	if mediaType == "image" {
+		if err := embedImageMetadata(filePath, author, postURL); err != nil {
+			fmt.Printf("Warning: failed to embed metadata: %v\n", err)
+		}
 	}
 
 	// Mark as downloaded in cache
@@ -575,6 +635,11 @@ func main() {
 	if err2 != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing: %v\n", err2)
 		os.Exit(1)
+	}
+
+	// Migrate existing files to new format with author prefix
+	if err := fetcher.migrateExistingFiles(handle); err != nil {
+		fmt.Printf("Warning: migration encountered errors: %v\n", err)
 	}
 
 	// Get ntfy topic for notifications
