@@ -605,6 +605,7 @@ func (mf *MediaFetcher) downloadFile(url, mediaType, author, postURL string) (in
 func main() {
 	// Parse command-line flags
 	watchOnlyFlag := flag.Bool("watch", false, "Skip initial download, only watch for new likes")
+	limitFlag := flag.Int("limit", -1, "Max files to download (overrides config)")
 	flag.Parse()
 
 	cfg, err := loadConfig("config.yaml")
@@ -618,6 +619,11 @@ func main() {
 	downloadDir := cfg.Download.Dir
 	cacheFile := cfg.Download.CacheFile
 	downloadLimit := cfg.Download.Limit
+
+	// Override with flag if provided
+	if *limitFlag >= 0 {
+		downloadLimit = *limitFlag
+	}
 	pollIntervalMinutes := cfg.PollIntervalMinutes
 	ntfyTopic := cfg.NtfyTopic
 	healthPort := cfg.HealthPort
