@@ -1,83 +1,13 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"time"
-
-	"gopkg.in/yaml.v3"
-
-	"github.com/bluesky-social/indigo/api/atproto"
 )
-
-type Config struct {
-	Bsky struct {
-		Handle   string `yaml:"handle"`
-		Password string `yaml:"password"`
-	} `yaml:"bsky"`
-	Download struct {
-		Dir       string `yaml:"dir"`
-		CacheFile string `yaml:"cache_file"`
-		Limit     int    `yaml:"limit"`
-	} `yaml:"download"`
-	PollIntervalMinutes int    `yaml:"poll_interval_minutes"`
-	NtfyTopic           string `yaml:"ntfy_topic"`
-	HealthPort          string `yaml:"health_port"`
-}
-
-func loadConfig(path string) (*Config, error) {
-	// Set defaults
-	cfg := Config{
-		PollIntervalMinutes: 30,
-		HealthPort:          "8080",
-	}
-	cfg.Download.Limit = 100
-	cfg.Download.Dir = "./downloaded_files"
-	cfg.Download.CacheFile = "./downloaded_cache.txt"
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	// Unmarshal overwrites only fields present in YAML
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, err
-	}
-	return &cfg, nil
-}
-
-// refreshToken refreshes the access token using the refresh token
-func (mf *MediaFetcher) refreshToken(ntfyTopic string) error {
-	// Mutex lock for handeling race conditions
-	mf.refreshMutex.Lock()
-	defer mf.refreshMutex.Unlock()
-
-	fmt.Println("Refreshing authentication token...")
-	notify(ntfyTopic, "Refreshing authentication token..")
-
-	// ServerRefreshSession requires refresh token as bearer, not access token
-	originalAccess := mf.client.Auth.AccessJwt           // save the ACCESS token
-	mf.client.Auth.AccessJwt = mf.client.Auth.RefreshJwt // swap in the REFRESH token
-
-	refreshed, err := atproto.ServerRefreshSession(context.Background(), mf.client)
-	if err != nil {
-		fmt.Printf("DEBUG refresh error: %v\n", err)
-		mf.client.Auth.AccessJwt = originalAccess // restore original access token
-		notify(ntfyTopic, fmt.Sprintf("failed to refresh token: %v", err))
-		return fmt.Errorf("failed to refresh token: %w", err)
-	}
-
-	mf.client.Auth.AccessJwt = refreshed.AccessJwt
-	mf.client.Auth.RefreshJwt = refreshed.RefreshJwt
-	notify(ntfyTopic, "Token refreshed successfully")
-	fmt.Println("Token refreshed successfully")
-	return nil
-}
 
 // main()
 func main() {
@@ -109,9 +39,20 @@ func main() {
 	// Watch only mode: true if --watch flag
 	watchOnly := *watchOnlyFlag
 
-	// Validate required environment variables
+	// Prompt for credentials if not configured
 	if handle == "" || password == "" {
-		log.Fatal("BSKY_HANDLE and BSKY_PASSWORD must be set in config.yaml")
+		fmt.Println("Bluesky credentials not found in config.yaml")
+		if err := promptCredentials(cfg); err != nil {
+			log.Fatalf("Failed to read credentials: %v", err)
+		}
+		handle = cfg.Bsky.Handle
+		password = cfg.Bsky.Password
+
+		// Save credentials to config file
+		if err := saveConfig("config.yaml", cfg); err != nil {
+			log.Fatalf("Failed to save config: %v", err)
+		}
+		fmt.Println("Credentials saved to config.yaml")
 	}
 
 	//	Create fetcher

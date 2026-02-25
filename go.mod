@@ -4,6 +4,7 @@ go 1.24
 
 require (
 	github.com/bluesky-social/indigo v0.0.0-20251114034233-c10ddb5cf518
+	golang.org/x/term v0.18.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
