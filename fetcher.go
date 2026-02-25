@@ -75,10 +75,13 @@ func (mf *MediaFetcher) FetchAndDownload(actor string, batchSize int64, download
 	downloadCount := 0
 	postsProcessed := 0
 
-	fmt.Print("\033[s")
+	spinner := NewSpinner(fmt.Sprintf("Processing posts (downloaded: 0/%d)", downloadLimit))
+	spinner.Start()
+
 	for downloadCount < downloadLimit {
 		resp, err := bsky.FeedGetActorLikes(context.Background(), mf.client, actor, cursor, batchSize)
 		if err != nil {
+			spinner.Stop()
 			return fmt.Errorf("failed to fetch likes: %w", err)
 		}
 
@@ -90,14 +93,14 @@ func (mf *MediaFetcher) FetchAndDownload(actor string, batchSize int64, download
 		// Process and download from this batch
 		for _, post := range resp.Feed {
 			if downloadCount >= downloadLimit {
-				fmt.Printf("\nReached download limit of %d files\n", downloadLimit)
+				spinner.Stop()
+				fmt.Printf("Reached download limit of %d files\n", downloadLimit)
 				fmt.Printf("Total files downloaded: %d\n", downloadCount)
 				return nil
 			}
 
 			postsProcessed++
-			fmt.Print("\033[u\033[K")
-			fmt.Printf("Processing post %d (downloaded: %d/%d)\n", postsProcessed, downloadCount, downloadLimit)
+			spinner.Update(fmt.Sprintf("Processing post %d (downloaded: %d/%d)", postsProcessed, downloadCount, downloadLimit))
 
 			// Check if post has embed
 			if post.Post.Embed == nil {
@@ -156,7 +159,8 @@ func (mf *MediaFetcher) FetchAndDownload(actor string, batchSize int64, download
 		cursor = *resp.Cursor
 	}
 
-	fmt.Printf("\nTotal files downloaded: %d\n", downloadCount)
+	spinner.Stop()
+	fmt.Printf("Total files downloaded: %d\n", downloadCount)
 	return nil
 }
 
@@ -165,15 +169,20 @@ func (mf *MediaFetcher) WatchLikes(actor string, interval time.Duration, ntfyTop
 	seen := make(map[string]bool)
 
 	// Initial load - mark existing likes as seen
-	fmt.Println("Loading existing likes...")
+	spinner := NewSpinner("Loading existing likes...")
+	spinner.Start()
 	resp, err := bsky.FeedGetActorLikes(context.Background(), mf.client, actor, "", 50)
 	if err != nil {
+		spinner.Stop()
 		return fmt.Errorf("failed to fetch initial likes: %w", err)
 	}
 	for _, post := range resp.Feed {
 		seen[post.Post.Uri] = true
 	}
+	spinner.Stop()
 	fmt.Printf("Tracking %d existing likes. Watching for new ones...\n", len(seen))
+
+	fmt.Printf("Watching for new likes...")
 
 	for {
 		time.Sleep(interval)
@@ -215,6 +224,7 @@ func (mf *MediaFetcher) WatchLikes(actor string, interval time.Duration, ntfyTop
 				fmt.Printf("Downloaded %d file(s)\n", downloaded)
 				notify(ntfyTopic, fmt.Sprintf("Downloaded %d file(s) from new like", downloaded))
 			}
+			fmt.Printf("Watching for new likes...")
 		}
 	}
 }

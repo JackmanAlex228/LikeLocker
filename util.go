@@ -8,11 +8,57 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/bluesky-social/indigo/api/atproto"
 	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
 )
+
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+type Spinner struct {
+	message string
+	done    chan bool
+	mu      sync.Mutex
+}
+
+func NewSpinner(message string) *Spinner {
+	return &Spinner{
+		message: message,
+		done:    make(chan bool),
+	}
+}
+
+func (s *Spinner) Start() {
+	go func() {
+		i := 0
+		for {
+			select {
+			case <-s.done:
+				return
+			default:
+				s.mu.Lock()
+				fmt.Printf("\r%s %s", spinnerFrames[i%len(spinnerFrames)], s.message)
+				s.mu.Unlock()
+				i++
+				time.Sleep(80 * time.Millisecond)
+			}
+		}
+	}()
+}
+
+func (s *Spinner) Update(message string) {
+	s.mu.Lock()
+	s.message = message
+	s.mu.Unlock()
+}
+
+func (s *Spinner) Stop() {
+	s.done <- true
+	fmt.Print("\r\033[K") // clear line
+}
 
 type Config struct {
 	Bsky struct {
