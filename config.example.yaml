@@ -10,5 +10,5 @@ download:
 poll_interval_minutes: 30
 
 # Leave empty to disable
-ntfy_topic:
-health_port:
+ntfy_topic: # for mobile notification debugging
+health_port: # for application monitoring via server ip:port
