@@ -11,7 +11,7 @@ Currently supports **Bluesky**. More platforms planned.
 - Configurable download limits per run
 - Video support via ffmpeg (handles HLS streams)
 - Watch mode for continuous monitoring of new likes
-- Content-addressed filenames (SHA256 hash) to avoid duplicates
+- Author-prefixed filenames with embedded metadata for easy identification
 
 ## Requirements
 
@@ -29,44 +29,26 @@ cd LikeLocker
 go build -o likelocker .
 ```
 
-2. Copy the example config file and configure:
-```bash
-cp config.example.yaml config.yaml
-```
-
-3. Edit `config.yaml` with your Bluesky credentials:
-```yaml
-bsky:
-  handle: your-handle.bsky.social
-  password: your-app-password
-
-download:
-  dir: ./downloaded_files
-  cache_file: ./downloaded_cache.txt
-  limit: 100
-
-poll_interval_minutes: 30
-
-# Leave empty to disable
-ntfy_topic:
-health_port:
-```
-
-4. Run:
+2. Run:
 ```bash
 ./likelocker
 ```
+
+On first run, you'll be prompted for your Bluesky credentials. They'll be saved to `config.yaml` automatically.
 
 Downloaded files will appear in `./downloaded_files/`.
 
 ## Usage
 
 ```bash
-# Download liked media up to DOWNLOAD_LIMIT, then watch for new likes
+# Download liked media, then watch for new likes
 ./likelocker
 
 # Skip initial download, only watch for new likes
 ./likelocker --watch
+
+# Override the download limit from config
+./likelocker --limit 50
 ```
 
 ### Development
@@ -75,10 +57,10 @@ For testing and debugging, you can run directly with Go without building:
 
 ```bash
 # Run directly
-go run main.go
+go run .
 
 # Run with watch flag
-go run main.go --watch
+go run . --watch
 ```
 
 The app runs in two phases:
@@ -101,7 +83,9 @@ Use `--watch` to skip phase 1 and go straight to watching.
 | `ntfy_topic` | ntfy.sh topic for push notifications (disabled if empty) | - |
 | `health_port` | Port for health endpoint (disabled if empty) | - |
 
-You can use the `--watch` flag to skip the initial download and go straight to watching.
+**Flags:**
+- `--watch` - Skip initial download, go straight to watching
+- `--limit N` - Override `download.limit` for this run
 
 ### Push Notifications
 
@@ -151,8 +135,6 @@ Example: `johndoe.bsky.social_a1b2c3d4...mp4`
 Each downloaded file contains embedded metadata for easy identification:
 - **Images**: EXIF/XMP fields `Artist` (author handle) and `Source` (post URL)
 - **Videos**: MP4 metadata fields `artist` and `comment`
-
-On first run, existing files in old format (hash-only names) will be automatically migrated to the new format with metadata.
 
 ## Roadmap
 
