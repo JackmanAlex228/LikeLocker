@@ -89,23 +89,6 @@ func embedImageMetadata(filepath, author, postURL string) error {
 	return cmd.Run()
 }
 
-// readImageMetadata reads Artist and Source metadata from an image using exiftool
-func readImageMetadata(filepath string) (author, postURL string, err error) {
-	cmd := exec.Command("exiftool", "-Artist", "-Source", "-s", "-s", "-s", filepath)
-	output, err := cmd.Output()
-	if err != nil {
-		return "", "", err
-	}
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	if len(lines) >= 1 {
-		author = strings.TrimSpace(lines[0])
-	}
-	if len(lines) >= 2 {
-		postURL = strings.TrimSpace(lines[1])
-	}
-	return author, postURL, nil
-}
-
 // notify sends a push notification via ntfy.sh (if topic is configured)
 func notify(topic, message string) {
 	if topic == "" {
@@ -641,11 +624,6 @@ func main() {
 	if err2 != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing: %v\n", err2)
 		os.Exit(1)
-	}
-
-	// Migrate existing files to new format with author prefix
-	if err := fetcher.migrateExistingFiles(handle); err != nil {
-		fmt.Printf("Warning: migration encountered errors: %v\n", err)
 	}
 
 	// Get ntfy topic for notifications
