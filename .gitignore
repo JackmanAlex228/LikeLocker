@@ -10,3 +10,5 @@ bsky-liked-media-downloader
 
 # macOS
 .DS_Store
+Dockerfile.dev
+docker-compose.dev.yaml
